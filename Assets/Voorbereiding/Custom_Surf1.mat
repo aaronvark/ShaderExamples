@@ -40,9 +40,11 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Floats:
     - _A: 0.03
-    - _Glossiness: 0.962
-    - _HeightPower: 0.053
-    - _Metallic: 0.503
+    - _DepthRefractScale: 1.3
+    - _Glossiness: 0.96
+    - _HeightPower: 0.05
+    - _Metallic: 1
+    - _NormalRefraction: 0.21
     - _Tess: 64
     m_Colors:
-    - _Color: {r: 0.042274825, g: 0.09193963, b: 0.09433961, a: 1}
+    - _Color: {r: 0.26032394, g: 0.4716981, b: 0.42640367, a: 1}

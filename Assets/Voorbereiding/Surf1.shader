@@ -9,15 +9,19 @@ Shader "Custom/Surf1" {
 		_GlossMap("Gloss Map", 2D) = "black" {}
 		_NormalMap("Normal Map", 2D) = "blue" {}
 		_HeightMap("Height Map", 2D) = "black" {}
-		_Glossiness ("Smoothness", Range(0,1)) = 0.5
-		_Metallic ("Metallic", Range(0,1)) = 0.0
+		_Glossiness("Smoothness", Range(0,1)) = 0.5
+		_Metallic("Metallic", Range(0,1)) = 0.0
 		_Tess("Tessellation", Range(1,64)) = 1.0
 		_HeightPower("Height Map Influence", Range(0,1)) = 0.1
 		_A("Amplitude", Range(0,10)) = 1
+		_NormalRefraction("Surface Normal Refraction", Range(0,1)) = 0.5
+		_DepthRefractScale("Depth Refraction Scale", Range(0,10)) = 1
 	}
 	SubShader {
 		Tags { "RenderType" = "Opaque" "Queue"="Transparent-1" }
 		LOD 200
+
+		ZWrite off
 
 		GrabPass {}
 
@@ -49,6 +53,7 @@ Shader "Custom/Surf1" {
 		sampler2D _GlossMap;
 
 		uniform sampler2D _GrabTexture;
+		uniform sampler2D _CameraDepthTexture;
 
 		struct Input {
 			float2 uv_MainTex;
@@ -57,7 +62,7 @@ Shader "Custom/Surf1" {
 			float3 viewDir;
 			float4 screenPos;
 			float3 worldPos;
-			//float3 worldRefl; INTERNAL_DATA
+			float3 worldNormal; INTERNAL_DATA
 		};
 
 		half _Glossiness;
@@ -66,6 +71,8 @@ Shader "Custom/Surf1" {
 		float _HeightPower;
 		fixed4 _Color;
 		float _A;
+		float _NormalRefraction;
+		float _DepthRefractScale;
 
 		float4 _HeightMap_ST;
 
@@ -79,13 +86,28 @@ Shader "Custom/Surf1" {
 		float4 tessDistance(appdata_full v0, appdata_full v1, appdata_full v2)
 		{
 			float minDist = 1;
-			float maxDist = 15.0;
+			float maxDist = 25.0;
 			return UnityDistanceBasedTess(v0.vertex, v1.vertex, v2.vertex, minDist, maxDist, _Tess);
+		}
+
+		// Projects a vector onto another vector.
+		float3 Project(float v1, float3 normal) {
+			float sqrMag = dot(normal, normal);
+			if (sqrMag < 0.00001)
+				return 0;
+			else
+				return normal * dot(v1, normal) / sqrMag;
+		}
+
+		// Projects a vector onto a plane defined by a normal orthogonal to the plane.
+		float3 ProjectOnPlane(float3 v, float3 planeNormal) {
+			return v - Project(v, planeNormal);
 		}
 
 		void vert(inout appdata_full v) {
 			//add worldspace animation
 			float4 v0 = mul(unity_ObjectToWorld, v.vertex);
+
 
 			float3 v1 = v0.xyz + float3(0.0005, 0, 0);
 			float3 v2 = v0.xyz + float3(0, 0, 0.0005);
@@ -122,6 +144,24 @@ Shader "Custom/Surf1" {
 			float3 vna = cross(normalize(PC.xyz - PA.xyz), normalize(PB.xyz - PA.xyz));
 			float3 vn = mul((float3x3)unity_ObjectToWorld, vna);
 
+			/*
+			float3 c1 = cross(vna, float3(0.0, 0.0, 1.0));
+			float3 c2 = cross(vna, float3(0.0, 1.0, 0.0));
+			float3 tangent = float3(0, 0, 1);
+
+			if (length(c1)>length(c2))
+			{
+				tangent = c1;
+			}
+			else
+			{
+				tangent = c2;
+			}
+
+			tangent = normalize(tangent);
+			v.tangent = float4(tangent, 0);
+			*/
+
 			v.normal = normalize(vn);
 			v.vertex = mul(unity_WorldToObject, v0);
 		}
@@ -131,21 +171,32 @@ Shader "Custom/Surf1" {
 			float2 screenUV = IN.screenPos.xy / IN.screenPos.w;
 			float2 worldUV = IN.worldPos.xz;
 
-			fixed4 c = tex2D(_MainTex, IN.uv_MainTex)// *_Color;
+			//fixed4 camDepth = tex2D(_CustomDepth, screenUV);
+
+			fixed4 c = tex2D(_MainTex, worldUV);// *_Color;
 			
-			float3 n1 = UnpackNormal(tex2D(_NormalMap, IN.uv_NormalMap + half2(_Time.x * .1, _Time.x * .1)));
-			float3 n2 = UnpackNormal(tex2D(_NormalMap, IN.uv_NormalMap*2 - half2(_Time.x * .1, _Time.x * .1)));
-			float3 n3 = UnpackNormal(tex2D(_NormalMap, IN.uv_NormalMap*1.2 + half2(0, _Time.x * .1)));
+			float3 n1 = UnpackNormal(tex2D(_NormalMap, worldUV + half2(_Time.x * .1, _Time.x * .1)));
+			float3 n2 = UnpackNormal(tex2D(_NormalMap, worldUV *2 - half2(_Time.x * .1, _Time.x * .1)));
+			float3 n3 = UnpackNormal(tex2D(_NormalMap, worldUV*1.2 + half2(0, _Time.x * .1)));
 			float3 n = n1 + n2 + n3 * .33333;
 
 			o.Normal = lerp(o.Normal, n, _HeightPower * 2);
 			
 			float alpha = ( 1 - pow( dot(o.Normal, IN.viewDir), 2 ) ) + .1;
+
+			float3 worldNormal = WorldNormalVector(IN, o.Normal);
+			float3 projectedNormal = ProjectOnPlane(worldNormal, -IN.viewDir);
+
+			float sceneZ = max(0, Linear01Depth(UNITY_SAMPLE_DEPTH(tex2Dproj(_CameraDepthTexture, UNITY_PROJ_COORD(IN.screenPos)))) - _ProjectionParams.g);
+			float partZ = max(0, IN.screenPos.z - _ProjectionParams.g);
+
+			screenUV.xy += projectedNormal.rg * _NormalRefraction * ( ( sceneZ - partZ ) * _DepthRefractScale) + n.rg * _HeightPower;
+
 			fixed3 grabColor = tex2D(_GrabTexture, screenUV).rgb;
 
 			float3 color = lerp(_Color, c, clamp(IN.worldPos.y * 2 + 0.05,0,1));
 			
-			o.Albedo = lerp( grabColor, color, alpha);
+			o.Albedo = (sceneZ - partZ);// lerp(grabColor, color, alpha);
 
 			float3 worldRefl = reflect(-IN.viewDir, o.Normal);
 
