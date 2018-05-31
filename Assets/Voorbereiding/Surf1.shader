@@ -131,7 +131,7 @@ Shader "Custom/Surf1" {
 			float2 screenUV = IN.screenPos.xy / IN.screenPos.w;
 			float2 worldUV = IN.worldPos.xz;
 
-			fixed4 c = tex2D(_MainTex, IN.uv_MainTex)// *_Color;
+			fixed4 c = tex2D(_MainTex, IN.uv_MainTex);// *_Color;
 			
 			float3 n1 = UnpackNormal(tex2D(_NormalMap, IN.uv_NormalMap + half2(_Time.x * .1, _Time.x * .1)));
 			float3 n2 = UnpackNormal(tex2D(_NormalMap, IN.uv_NormalMap*2 - half2(_Time.x * .1, _Time.x * .1)));
