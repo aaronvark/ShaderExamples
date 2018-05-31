@@ -172,7 +172,6 @@ Shader "Custom/Surf1" {
 			float2 worldUV = IN.worldPos.xz;
 
 			//fixed4 camDepth = tex2D(_CustomDepth, screenUV);
-
 			fixed4 c = tex2D(_MainTex, worldUV);// *_Color;
 			
 			float3 n1 = UnpackNormal(tex2D(_NormalMap, worldUV + half2(_Time.x * .1, _Time.x * .1)));
